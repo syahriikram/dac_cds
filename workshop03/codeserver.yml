@@ -1,0 +1,133 @@
+    apiVersion: v1
+    kind: Namespace
+    metadata:
+      name: codeserver
+      labels:
+        app: cs
+
+---
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: cs-pvc
+  namespace: codeserver
+  labels:
+    app: cs
+spec:
+  accessModes:
+  - ReadWriteOnce
+  storageClassName: do-block-storage
+  resources:
+    requests:
+      storage: 1Gi
+
+
+---
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: cs-cm
+  namespace: codeserver
+  labels:
+    name: cs-cm
+    app: cs
+data:
+  TZ: Asia/Singapore
+  DEFAULT_WORKSPACE: /config/workspace
+  PROXY_DOMAIN: codeserver.104.248.99.248.nip.io
+
+---
+apiVersion: v1
+kind: Secret
+metadata:
+  name: cs-secret
+  namespace: codeserver
+  labels:
+    app: cs
+    name: cs-secret
+type: Opaque
+data:
+  PASSWORD: Y2hhbmdlaXQ=
+  SUDO_PASSWORD: Y2hhbmdlaXQ=
+
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: cs-deploy
+  namespace: codeserver
+  labels:
+    name: cs-deploy
+    app: cs
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      name: cs-po
+      app: cs
+  template:
+    metadata:
+      name: cs-po
+      labels:
+        name: cs-po
+        app: cs
+    spec:
+      volumes:
+      - name: cs-vol
+        persistentVolumeClaim:
+          claimName: cs-pvc
+      containers:
+      - name: cs-container
+        image: linuxserver/code-server:amd64-4.13.0
+        imagePullPolicy: IfNotPresent
+        ports:
+        - containerPort: 8443
+        envFrom:
+          - configMapRef:
+              name: cs-cm
+          - secretRef:
+              name: cs-secret
+        volumeMounts:
+        - name: cs-vol
+          mountPath: /config/workspace
+
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: cs-svc
+  namespace: codeserver
+  labels:
+    app: cs
+    name: cs-svc
+spec:
+  type: ClusterIP
+  selector:
+    name: cs-po
+    app: cs
+  ports:
+  - port: 8443
+    targetPort: 8443
+
+---
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: cs-ing
+  namespace: codeserver
+  labels:
+    app: cs
+    name: cs-ing
+spec:
+  ingressClassName: nginx
+  rules:
+  - host: codeserver.104.248.99.248.nip.io
+    http:
+      paths:
+      - path: /
+        pathType: Prefix
+        backend:
+          service:
+            name: cs-svc
+            port:
+              number: 8443
