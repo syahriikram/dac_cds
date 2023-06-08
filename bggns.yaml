@@ -1,0 +1,140 @@
+---
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: bggns
+  labels:
+    app: bgg
+    name: bggns
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: bggdb-deploy
+  namespace: bggns
+  labels:
+    name: bggdb-deploy
+    app: bgg
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      name: bggdb-po
+      app: bgg
+  template:
+    metadata:
+      name: bggdb-po
+      labels:
+        name: bggdb-po
+        app: bgg
+    spec:
+      containers:
+      - name: bggdb-po
+        image: stackupiss/bgg-database:v1
+        imagePullPolicy: IfNotPresent
+        ports:
+        - containerPort: 3306
+
+---
+apiVersion: v1
+kind: Secret
+metadata:
+  name: bgg-secret
+  namespace: bggns
+  labels:
+    app: bgg
+    name: bgg-secret
+type: Opaque
+data:
+  BGG_DB_PASSWORD: Y2hhbmdlaXQ=
+
+---
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: bgg-cm
+  namespace: bggns
+  labels:
+    app: bgg
+    name: bgg-cm
+data:
+  BGG_USER: root
+  BGG_DB_HOST: bggdb-svc.bggns.svc.cluster.local
+
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: bggapp-deploy
+  namespace: bggns
+  labels:
+    app: bgg
+    name: bggapp-deploy
+spec:
+  replicas: 3
+  selector:
+    matchLabels:
+      name: bggapp-po
+  template:
+    metadata:
+      name: bggapp-po
+      labels:
+        name: bggapp-po
+        app: bgg
+    spec:
+      containers:
+      - name: bggapp-po
+        image: stackupiss/bgg-backend:v1
+        imagePullPolicy: IfNotPresent
+        ports:
+        - containerPort: 3000
+        envFrom:
+        - configMapRef:
+            name: bgg-cm
+        - secretRef:
+            name: bgg-secret
+        # readinessProbe:
+        #   httpGet:
+        #     path: /healthz
+        #     port: 3000
+        # livenessProbe:
+        #   httpGet:
+        #     path: /healthz
+        #     port: 3000
+
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: bggdb-svc
+  namespace: bggns
+  labels:
+    app: bgg
+    name: bgg-svc
+spec:
+  type: ClusterIP
+  selector:
+    name: bggdb-po
+    app: bgg
+  ports:
+  - port: 3306
+    targetPort: 3306
+
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: bggapp-svc
+  namespace: bggns
+  labels:
+    app: bgg
+    name: bggapp-svc
+spec:
+  type: ClusterIP
+  selector:
+    name: bggapp-po
+    app: bgg
+  ports:
+  - port: 3000
+    targetPort: 3000
+
