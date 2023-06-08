@@ -1,0 +1,182 @@
+---
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: mini-ns
+
+
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: mini-console-hsvc
+  namespace: mini-ns
+spec:
+  type: ClusterIP
+  selector:
+    app: mini
+    name: mini-po
+  ports:
+  - name: mini-console-port
+    port: 9001
+    targetPort: 9001
+
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: mini-data-hsvc
+  namespace: mini-ns
+spec:
+  clusterIP: None
+  selector:
+    app: mini
+    name: mini-po
+  ports:
+  - name: mini-data-port
+    port: 9000
+    targetPort: 9000
+
+---
+apiVersion: apps/v1
+kind: StatefulSet
+metadata:
+  name: mini-sts
+  namespace: mini-ns
+  labels:
+    app: mini
+    name: mini-sts
+spec:
+  serviceName: mini-hsvc
+  replicas: 5
+  selector:
+    matchLabels:
+      app: mini
+      name: mini-po
+  volumeClaimTemplates:
+  - apiVersion: v1
+    kind: PersistentVolumeClaim
+    metadata:
+      name: mini-pvc
+      labels:
+        app: mini-data-hsvc
+        name: mini
+    spec:
+      accessModes: [ "ReadWriteOnce" ]
+      storageClassName: do-block-storage
+      resources:
+        requests:
+          storage: 1Gi
+  template:
+    metadata:
+      name: mini-po
+      labels:
+        app: mini
+        name: mini-po
+    spec:
+      initContainers:
+      - name: busybox
+        image: busybox
+        command:
+        - /bin/sh
+        - -c
+        - "chown 1001:1001 /data"
+        volumeMounts:
+          - name: mini-pvc
+            mountPath: /data
+      containers:
+      - name: mini-container
+        image: bitnami/minio:2023.6.2
+        imagePullPolicy: IfNotPresent
+        command:
+        - minio
+        - server
+        - --address=:9000
+        - --console-address=:9001
+        - http://mini-sts-{0...4}.mini-hsvc.mini-ns.svc.cluster.local/data
+        env:
+        - name: MINIO_ROOT_USER
+          value: user
+        - name: MINIO_ROOT_PASSWORD
+          value: password
+        - name: MINIO_DISTRIBUTED_MODE_ENABLED
+          value: 'yes'
+        - name: MINIO_DISTRIBUTED_NODES
+          value: mini-sts-{1...3}
+        ports:
+        - containerPort: 9000
+        resources:
+          requests:
+            cpu: 200m
+            memory: 250Mi
+          # limits:
+          #   cpu: 64m
+          #   memory: 128Mi
+        # - containerPort: 9090
+        # readinessProbe:
+        #   httpGet:
+        #     port: 900
+        #     path: /minio/health/ready
+        # livenessProbe:
+        #   httpGet:
+        #     port: 900
+        #     path: /minio/health/live
+        volumeMounts:
+          - name: mini-pvc
+            mountPath: /data
+
+---
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: mini-data-ing
+  namespace: mini-ns
+  labels:
+    app: mini
+    name: mini-data-ing
+spec:
+  ingressClassName: nginx
+  rules:
+  - host: data-104.248.99.248.nip.io
+    http:
+      paths:
+      - path: /
+        pathType: Prefix
+        backend:
+          service:
+            name: mini-data-hsvc
+            port:
+              number: 9000
+  - host: console-104.248.99.248.nip.io
+    http:
+      paths:
+      - path: /
+        pathType: Prefix
+        backend:
+          service:
+            name: mini-console-hsvc
+            port:
+              number: 9001
+
+# ---
+# apiVersion: networking.k8s.io/v1
+# kind: Ingress
+# metadata:
+#   name: mini-console-ing
+#   namespace: mini-ns
+#   labels:
+#     app: mini
+#     name: mini-console-ing
+# spec:
+#   ingressClassName: nginx
+#   rules:
+#   - host: console-104.248.99.248.nip.io
+#     http:
+#       paths:
+#       - path: /
+#         pathType: Prefix
+#         backend:
+#           service:
+#             name: mini-console-hsvc
+#             port:
+#               number: 9001
